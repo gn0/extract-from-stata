@@ -6,6 +6,7 @@ import extract_from_stata.model.common
 
 def is_beginning_of_table(line):
     return (line.startswith("Linear regression")
+            or re.match(r"^ +Source \| +SS +df +MS", line) is not None
             or line.startswith("Negative binomial regression")
             or line.startswith("HDFE Linear regression")
             # reghdfe IV estimation:
@@ -21,7 +22,7 @@ def find_first_table_in(string):
         if is_beginning_of_table(line):
             table_string += line
         elif table_string and not line.strip():
-            if "----" in table_string:
+            if re.search(r"^----+$", table_string, flags=re.M):
                 break
             else:
                 table_string += line
@@ -69,21 +70,15 @@ def extract_number_of_clusters(table_string):
 
 
 def _extract_depvar_from_table_header(table_string):
-    pattern = re.compile(r"^ *([A-Za-z0-9_~]+) +\|")
+    pattern = re.compile(r"^ *([A-Za-z0-9_~]+) +\| +Coef[.] ")
 
-    header_started = False
     for line in table_string.splitlines():
-        if not header_started and line.startswith("----"):
-            header_started = True
-        elif header_started and line.startswith("----"):
-            return None
-        elif header_started:
-            match = pattern.match(line)
+        match = pattern.match(line)
 
-            if match is None:
-                continue
+        if match is None:
+            continue
 
-            return match.group(1)
+        return match.group(1)
 
     return None # This shouldn't be reached.
 
@@ -101,10 +96,10 @@ def _extract_depvar_from_table_preamble(table_string):
 
 
 def extract_dependent_variable(table_string):
-    varname = _extract_depvar_from_table_header(table_string)
+    varname = _extract_depvar_from_table_preamble(table_string)
 
     if varname is None:
-        varname = _extract_depvar_from_table_preamble(table_string)
+        varname = _extract_depvar_from_table_header(table_string)
 
     return varname
 
@@ -144,9 +139,9 @@ def extract_coefficients(table_string, parameters):
     categorical_variable = None
 
     for line in table_string.splitlines():
-        if segment == "pre-header" and line.startswith("----"):
+        if segment == "pre-header" and re.match(r"^----+$", line):
             segment = "header"
-        elif segment == "header" and line.startswith("----"):
+        elif segment == "header" and re.match(r"^----+[+]-+$", line):
             segment = "post-header"
         elif segment == "post-header":
             if categorical_block and is_end_of_block(line):
